@@ -1,0 +1,49 @@
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test / coverage / cache
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Local output / temp artifacts
+data/outputs/
+tmp/
+temp/
+
+# Optional: ignore local sample/generated files if you do not want to commit them
+# data/sample_pdfs/
