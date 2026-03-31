@@ -17,6 +17,13 @@ STRING_FIELDS = [
 ]
 
 
+class ExtractionFailureError(ValueError):
+    def __init__(self, failure_reason: str, message: str, *, http_status: int = 502):
+        super().__init__(message)
+        self.failure_reason = failure_reason
+        self.http_status = http_status
+
+
 def _normalize_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -46,12 +53,25 @@ def _normalize_payload(payload: dict) -> dict:
 
 
 def run_extraction(request: ExtractRequest) -> ExtractedJob:
-    attachment_texts = extract_text_from_attachments(request.attachment_paths)
-    merged_text = merge_intake_text(
-        body_text=request.body_text,
-        attachment_texts=attachment_texts,
-        drive_texts=request.drive_texts,
-    )
-    payload = extract_structured_fields(merged_text)
-    normalized_payload = _normalize_payload(payload)
-    return ExtractedJob(**normalized_payload)
+    try:
+        attachment_texts = extract_text_from_attachments(request.attachment_paths)
+        merged_text = merge_intake_text(
+            body_text=request.body_text,
+            attachment_texts=attachment_texts,
+            drive_texts=request.drive_texts,
+        )
+        payload = extract_structured_fields(merged_text)
+        normalized_payload = _normalize_payload(payload)
+        return ExtractedJob(**normalized_payload)
+    except FileNotFoundError:
+        raise
+    except ValueError as exc:
+        message = str(exc)
+        lower_message = message.lower()
+        if message.startswith("PDF_PARSE_ERROR:"):
+            raise ExtractionFailureError("pdf_parse_error", message, http_status=502) from exc
+        if "empty content" in lower_message:
+            raise ExtractionFailureError("empty_llm_response", message, http_status=502) from exc
+        if "malformed json" in lower_message:
+            raise ExtractionFailureError("malformed_model_json", message, http_status=502) from exc
+        raise

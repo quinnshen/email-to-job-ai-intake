@@ -35,17 +35,50 @@ def init_db() -> None:
                 original_drive_texts_json TEXT NOT NULL,
                 reviewer_note TEXT NOT NULL,
                 downstream_job_id TEXT,
+                dedupe_status TEXT NOT NULL DEFAULT '',
+                matched_draft_id TEXT,
+                match_reason TEXT NOT NULL DEFAULT '',
+                review_reasons_json TEXT NOT NULL DEFAULT '[]',
+                failure_reason TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        existing_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(drafts)").fetchall()
+        }
+        migrations = [
+            ("dedupe_status", "ALTER TABLE drafts ADD COLUMN dedupe_status TEXT NOT NULL DEFAULT ''"),
+            ("matched_draft_id", "ALTER TABLE drafts ADD COLUMN matched_draft_id TEXT"),
+            ("match_reason", "ALTER TABLE drafts ADD COLUMN match_reason TEXT NOT NULL DEFAULT ''"),
+            (
+                "review_reasons_json",
+                "ALTER TABLE drafts ADD COLUMN review_reasons_json TEXT NOT NULL DEFAULT '[]'",
+            ),
+            ("failure_reason", "ALTER TABLE drafts ADD COLUMN failure_reason TEXT NOT NULL DEFAULT ''"),
+        ]
+        for column_name, statement in migrations:
+            if column_name not in existing_columns:
+                conn.execute(statement)
         conn.commit()
     finally:
         conn.close()
 
 
-def create_draft(*, extracted: dict, body_text: str, attachment_paths: list[str], drive_texts: list[str]) -> dict:
+def create_draft(
+    *,
+    extracted: dict,
+    body_text: str,
+    attachment_paths: list[str],
+    drive_texts: list[str],
+    status: str = "pending_approval",
+    dedupe_status: str = "",
+    matched_draft_id: str | None = None,
+    match_reason: str = "",
+    review_reasons: list[str] | None = None,
+    failure_reason: str = "",
+) -> dict:
     draft_id = str(uuid4())
     now = _now_utc_iso()
 
@@ -61,20 +94,30 @@ def create_draft(*, extracted: dict, body_text: str, attachment_paths: list[str]
                 original_drive_texts_json,
                 reviewer_note,
                 downstream_job_id,
+                dedupe_status,
+                matched_draft_id,
+                match_reason,
+                review_reasons_json,
+                failure_reason,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 draft_id,
-                "pending_approval",
+                status,
                 _to_json(extracted),
                 body_text,
                 _to_json(attachment_paths),
                 _to_json(drive_texts),
                 "",
                 None,
+                dedupe_status,
+                matched_draft_id,
+                match_reason,
+                _to_json(review_reasons or []),
+                failure_reason,
                 now,
                 now,
             ),
@@ -82,7 +125,9 @@ def create_draft(*, extracted: dict, body_text: str, attachment_paths: list[str]
         conn.commit()
 
         row = conn.execute("SELECT * FROM drafts WHERE id = ?", (draft_id,)).fetchone()
-        return dict(row)
+        if not row:
+            raise FileNotFoundError(f"Draft not found: {draft_id}")
+        return _row_to_draft_detail(row)
     finally:
         conn.close()
 
@@ -92,6 +137,11 @@ def _row_to_draft_detail(row: sqlite3.Row) -> dict:
         "draft_id": row["id"],
         "status": row["status"],
         "extracted": json.loads(row["extracted_json"]),
+        "dedupe_status": row["dedupe_status"],
+        "matched_draft_id": row["matched_draft_id"],
+        "match_reason": row["match_reason"],
+        "review_reasons": json.loads(row["review_reasons_json"]),
+        "failure_reason": row["failure_reason"],
         "body_text": row["original_body_text"],
         "attachment_paths": json.loads(row["original_attachment_paths_json"]),
         "drive_texts": json.loads(row["original_drive_texts_json"]),
@@ -144,6 +194,25 @@ def get_draft_detail(draft_id: str) -> dict:
         if not row:
             raise FileNotFoundError(f"Draft not found: {draft_id}")
         return _row_to_draft_detail(row)
+    finally:
+        conn.close()
+
+
+def list_dedupe_candidates(*, limit: int = 200) -> list[dict]:
+    conn = sqlite3.connect(_get_db_path())
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, status, extracted_json
+            FROM drafts
+            WHERE status != 'failed'
+            ORDER BY datetime(created_at) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
     finally:
         conn.close()
 

@@ -11,6 +11,7 @@ from app.services.draft_service import (
     list_drafts,
     reject_draft_action,
 )
+from app.services.extraction_service import ExtractionFailureError
 
 
 app = FastAPI(title="Email to Job Intake API")
@@ -32,6 +33,8 @@ def extract(request: ExtractRequest) -> DraftCreateResponse:
         return extract_and_save_draft(request)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExtractionFailureError as exc:
+        raise HTTPException(status_code=exc.http_status, detail=exc.failure_reason) from exc
     except ValueError as exc:
         message = str(exc).lower()
         if "json" in message or "model returned" in message:

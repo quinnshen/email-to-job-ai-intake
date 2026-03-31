@@ -12,11 +12,14 @@ def extract_text_from_attachments(attachment_paths: list[str]) -> list[dict[str,
             raise FileNotFoundError(f"Attachment file not found: {path}")
 
         text_parts: list[str] = []
-        reader = PdfReader(path)
-        for index, page in enumerate(reader.pages, start=1):
-            page_text = page.extract_text() or ""
-            if page_text.strip():
-                text_parts.append(f"[Page {index}]\n{page_text.strip()}")
+        try:
+            reader = PdfReader(path)
+            for index, page in enumerate(reader.pages, start=1):
+                page_text = page.extract_text() or ""
+                if page_text.strip():
+                    text_parts.append(f"[Page {index}]\n{page_text.strip()}")
+        except Exception as exc:
+            raise ValueError(f"PDF_PARSE_ERROR: {path}") from exc
 
         combined_text = "\n\n".join(text_parts).strip()
         if not combined_text:
