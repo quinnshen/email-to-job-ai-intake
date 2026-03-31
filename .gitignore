@@ -47,3 +47,5 @@ temp/
 
 # Optional: ignore local sample/generated files if you do not want to commit them
 # data/sample_pdfs/
+.local_dev_notes.md
+data/drafts.sqlite
